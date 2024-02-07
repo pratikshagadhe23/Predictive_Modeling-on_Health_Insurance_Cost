@@ -1,0 +1,624 @@
+---
+title: "Stat_632_project"
+author: "Poornima Yedidi/Pratiksha Gadhe/Yashi Agarwal"
+date: "2023-04-27"
+output: pdf_document
+---
+
+
+
+```{r,warning=FALSE,message=FALSE}
+
+library(tidyverse)
+library(RRF)
+library(naniar)
+library(faraway)
+library(randomForest)
+library(corrplot)
+library(car)
+library(reshape2)
+library(MASS)
+library(caret)
+library(stats)
+library(ggcorrplot)
+library(polycor)
+
+#data pre-processing
+
+ins <- read.csv("insurance.csv", stringsAsFactors = T)
+
+head(ins)
+dim(ins)
+
+
+#checking for NA values
+
+gg_miss_var(ins)
+
+vis_miss(ins)
+
+
+#data pre-processing
+
+ins$children <- factor(ins$children)
+
+#Summary statistics and EDA
+
+#scatterplot
+pairs(charges~.,data = ins)
+
+#histogram
+par(mfrow = c(2, 2))
+hist(ins$bmi,main = "Histogram of bmi",xlab= "bmi",col = "seagreen")
+hist(ins$charges,main = "Histogram of charges",xlab= "charges",col = "violet")
+hist(ins$age,main = "Histogram of age",xlab= "age",col ="lightblue")
+plot((ins$children),main = "barplot of children",xlab= "children",
+     col ="turquoise",ylab="count")
+par(mfrow = c(1, 1))
+
+#plots with respect to charges grouped by smoking habit
+
+
+ggplot(ins, aes(x=age,y=charges,col=smoker))+
+  geom_point(aes(col=smoker))+
+  stat_smooth(se=F)+labs(title = "Scatterplot between age and charges")
+ggplot(ins, aes(x=bmi,y=charges,col=smoker))+
+  geom_point(aes(col=smoker))+
+  stat_smooth(method="lm",se=F)+labs(title = "Scatterplot between bmi and charges")
+ggplot(ins, aes(x=children,y=charges,fill=smoker))+
+  geom_col(position="dodge")+labs(title = "barplot between children and charges")
+plot(ins$children, ins$charges, xlab ="Children", ylab = "Charges", col = "violet",
+     main = "Box-plot of Charges Vs Children")
+plot(ins$smoker, ins$charges,xlab ="Smoker", ylab = "Charges", col = "lightseagreen",
+     main = "Box-plot of Charges Vs Smoker")
+
+
+ggplot(ins, aes(x=(children),y=charges,fill=smoker))+
+  geom_violin(stat = "ydensity",position = "dodge",trim=FALSE,adjust=2.1,
+              draw_quantiles = c(0.25, 0.5, 0.75))+labs(title = "violinplot between children and charges")
+
+par(mfrow = c(1, 2))
+#bar plot of region and charges
+ins %>% group_by(region) %>% mutate(N=mean(charges)) %>% 
+  ggplot()+
+  geom_col(aes(reorder(region,N),N,fill=smoker))+
+  coord_flip()+labs(title = "bar plot of region with respect to charges",
+                    y = "Charges",
+                    x = "US region")
+
+#bar plot of sex and charges
+ins %>% group_by(sex) %>% mutate(N=sum(charges)) %>% 
+  ggplot()+
+  geom_col(aes(reorder(sex,N),N,fill=N))+
+  coord_flip()+scale_fill_gradient()+
+  labs(title = "bar plot of gender with respect to charges",
+                    y = "Charges",
+                    x = "Gender")
+par(mfrow = c(1, 1))
+
+#correlation matrix
+
+corr_mat_numeric <- cor(ins[,c("age","bmi","charges")])
+
+fac <-  data.frame(lapply(ins[, sapply(ins, is.factor)], as.numeric))
+num <-  data.frame(ins[, !sapply(ins, is.factor)])
+com_num_fac <- cbind(num, fac)
+
+corr_mat_factor <- cor(com_num_fac)
+
+ggcorrplot(corr_mat_factor, colors = c("turquoise","lightblue", "blue"), 
+           lab = TRUE, 
+           type = "lower", title = "Correlation Heatmap", ggtheme = theme_bw()) +
+  scale_fill_gradient2(low = "turquoise", mid = "lightblue", high = "blue", midpoint = 0)
+
+skimr::skim(ins)
+#Summary Statistics:
+
+ins %>% summarise_if(is.numeric,list(Mean = mean, SD =sd))
+ins %>%  group_by(age) %>% summarise(N=n()) %>% mutate(rel_freq=100*round((N/sum(N)),3)) %>% print(n = 47)
+ins %>%  group_by(fage) %>% summarise(N=n()) %>% mutate(rel_freq=100*round((N/sum(N)),3)) 
+ins %>%  group_by(sex) %>% summarise(N=n()) %>% mutate(rel_freq=100*round((N/sum(N)),3))
+
+ins %>%  group_by(children) %>% summarise(N=n()) %>% mutate(rel_freq=100*round((N/sum(N)),3))
+
+ins %>%  group_by(region) %>% summarise(N=n()) %>% mutate(rel_freq=100*round((N/sum(N)),3))
+ins %>%  group_by(region) %>% summarise(mean=mean(charges))
+ins %>%  group_by(smoker) %>% summarise(N=n()) %>% mutate(rel_freq=100*round((N/sum(N)),3))
+
+#summary statistics by grouping smoker
+
+ins %>% group_by(smoker) %>% summarise_if(is.numeric,list(Mean = mean, SD =sd))
+
+ins %>%  group_by(smoker,sex) %>% summarise(N=n()) %>% mutate(rel_freq=100*round((N/sum(N)),3))
+
+ins %>%  group_by(smoker,children) %>% summarise(N=n()) %>% mutate(rel_freq=100*round((N/sum(N)),3))
+
+ins %>%  group_by(smoker,region) %>% summarise(N=n()) %>% 
+  mutate(rel_freq=100*round((N/sum(N)),3))
+
+
+
+
+```
+
+
+
+
+
+```{r}
+
+
+#split data 80-20
+n <- nrow(ins)
+
+floor(n*0.8)
+
+library(rsample)
+
+set.seed(6253)
+train <- initial_split(ins,prop=8/10)
+
+train_data <- training(train)
+test_data <- testing(train)
+```
+
+
+
+#full model: 
+
+$\hat{charges} = \hat{\beta_0}+\hat{\beta_1}(age)+\hat{\beta_2}(sex)+\hat{\beta_3}(bmi)+\hat{\beta_4}(children)+\hat{\beta_5}(smoker)+\hat{\beta_6}(region)$
+
+#final model:
+
+$\hat{charges}^{0.15}= 2.99+0.019(age)-0.034(sex_{male})+1.54(bmi)-0.82(bmi)^2+0.075(children_1)+0.15(children_2)+0.138_(children_3)+0.315(children_4)+0.22(children_5)+0.97(smoker_{yes})-0.06(region_{northwest})-0.082(region_{southeast})-0.074(region_{southwest}))$
+
+
+```{r}
+
+#MLR
+#full model
+lm1 <- lm(charges ~ ., data = ins)
+
+summary(lm1)
+
+par(mfrow = c(1,2))
+plot(lm1,c(1,2))
+par(mfrow = c(1,1))
+
+summary(powerTransform(lm1))
+
+#using transformed response
+lm2 <- lm(charges^(0.15) ~ ., data=ins)
+summary(lm2)
+
+par(mfrow = c(2,2))
+plot(lm2)
+par(mfrow = c(1,1))
+
+#reduced model
+
+red <- step(lm2)
+
+summary(red)
+AIC(red,lm2)#same
+
+#polynomial
+#final model
+lm3 <- lm(charges^(0.15) ~ poly(age,3) + sex + poly(bmi,3) + children + smoker + region, data=ins)
+summary(lm3)
+AIC(lm3)
+par(mfrow = c(2,2))
+plot(lm3)
+par(mfrow = c(1,1))
+round(vif(lm3),2)
+
+#only 3 predictors
+
+lm4 <- lm(charges ~ age*bmi*smoker, data = ins)
+summary(lm4)
+
+par(mfrow = c(2,2))
+plot(lm4)
+par(mfrow = c(1,1))
+
+summary(powerTransform(lm4))
+
+lm5 <- lm(charges^(0.19) ~ age*bmi*smoker, data = ins)
+summary(lm5)$adj.r.squared
+
+par(mfrow = c(2,2))
+plot(lm5)
+par(mfrow = c(1,1))
+
+x <- step(lm5)
+summary(x)
+
+lm6 <- lm(charges^(0.19) ~ age + bmi + smoker + age:smoker + bmi:smoker, data = ins)
+summary(lm6)$adj.r.squared
+
+par(mfrow = c(2,2))
+plot(lm6)
+par(mfrow = c(1,1))
+
+lm7 <- lm(charges^(0.19) ~ poly(age,2) + bmi + smoker + poly(age,2):smoker + bmi:smoker, data = ins)
+summary(lm7)$adj.r.squared
+
+par(mfrow = c(2,2))
+plot(lm7)
+par(mfrow = c(1,1))
+shapiro.test(resid(lm4))
+AIC(lm4,lm5,lm6,lm7)
+lm_age <- lm(charges ~ (age) + smoker + age:smoker , data = ins)
+summary(lm_age)
+
+par(mfrow = c(2,2))
+plot(lm_age)
+par(mfrow = c(1,1))
+summary(powerTransform(lm_age))
+
+lm8 <- lm(charges^(0.06) ~ (age) + smoker + age:smoker , data = ins)
+summary(lm8)
+
+par(mfrow = c(2,2))
+plot(lm8)
+par(mfrow = c(1,1))
+
+anova(lm_age,lm1)
+
+
+lm9 <- lm((charges) ~ poly(age,2) + smoker + poly(age,2):smoker , data = ins)
+summary(lm9)
+
+par(mfrow = c(2,2))
+plot(lm9)
+par(mfrow = c(1,1))
+summary(powerTransform(lm9))
+
+lm <- lm(log(charges) ~ poly(age,2) + smoker, data=ins)
+summary(lm)
+
+lm10 <- lm(log(charges) ~ poly(age,2) + smoker + poly(age,2):smoker , data = ins)
+summary(lm10)
+
+par(mfrow = c(2,2))
+plot(lm10)
+par(mfrow = c(1,1))
+qqPlot(resid(lm10))
+
+lm11 <- lm(charges ~ bmi*children*smoker, data =ins)
+summary(lm11)
+
+par(mfrow = c(2,2))
+plot(lm11)
+par(mfrow = c(1,1))
+qqPlot(resid(lm11))
+summary(powerTransform(lm11))
+
+
+
+lm12 <- lm(charges^(0.5) ~ bmi*children*smoker, data =ins)
+summary(lm12)
+
+par(mfrow = c(2,2))
+plot(lm12)
+
+par(mfrow = c(1,1))
+qqPlot(resid(lm12))
+
+lm_13 <- lm(charges^(0.15) ~ poly(age,2) + sex + poly(bmi,2) + 
+                 children + smoker + region, data=train_data)
+
+summary(lm_13)
+
+par(mfrow = c(2,2))
+plot(lm_13)
+
+par(mfrow = c(1,1))
+qqPlot(resid(lm_13))
+summary(powerTransform(lm_13))
+
+
+AIC(lm1,lm2,lm3,lm4,lm5,lm6,lm7,lm8,lm9,lm10,lm11,lm12,lm_13)
+
+
+#final model
+lm_final <- lm(charges^(0.15) ~ age + sex + poly(bmi,2) + 
+                 children + smoker + region, data=train_data)
+summary(lm_final)
+AIC(lm_final)
+par(mfrow = c(2,2))
+plot(lm_final)
+par(mfrow = c(1,1))
+
+X <- model.matrix(lm_final)
+H <- X %*% solve(t(X) %*% X) %*% t(X)
+
+lev <- diag(H)
+sort(lev,decreasing = TRUE)[1:10]
+
+mean_leverage <- mean(lev)
+threshold <- (3 * mean_leverage)
+high_leverage <- unique(which(lev > threshold))
+
+plot(hatvalues(lm_final), rstandard(lm_final))
+abline(h=c(-4,4), lty=2,col="red")
+abline(v=threshold, lty=2,col="red")
+
+
+
+#predict
+
+pred_mlr <- lm_final %>% predict(test_data)
+
+rmse_mlr <- RMSE(pred_mlr, test_data$charges)
+
+rmse_mlr
+
+
+ins_scoreboard<- rbind(ins_scoreboard,
+   data.frame(Model = "MLR", RMSE = rmse_mlr)
+) %>% arrange(RMSE)
+(ins_scoreboard)
+
+
+```
+
+```{r}
+
+
+#Regression tree - decision tree
+#rpart
+set.seed(124)
+mdl_cart_full <- rpart(charges ~ ., train_data, method = "anova")
+print(mdl_cart_full)
+
+rpart.plot(mdl_cart_full, yesno = TRUE)
+
+plotcp(mdl_cart_full, upper = "splits")
+printcp(mdl_cart_full)#cp
+cp <-  mdl_cart_full$cptable[mdl_cart_full$cptable[, 2] == 4, "CP"]
+mdl_cart <- prune(
+   mdl_cart_full,
+   cp = cp
+)
+rpart.plot(mdl_cart, yesno = TRUE)
+
+
+preds_cart <- predict(mdl_cart, test_data, type = "vector")
+rmse_cart <- RMSE(
+   pred = preds_cart,
+   obs = test_data$charges
+)
+rmse_cart
+
+mdl_cart$variable.importance %>% 
+   data.frame() %>%
+   rownames_to_column(var = "Feature") %>%
+   rename(Overall = '.') %>%
+   ggplot(aes(x = fct_reorder(Feature, Overall), y = Overall)) +
+   geom_pointrange(aes(ymin = 0, ymax = Overall), color = "cadetblue", size = .3) +
+   theme_minimal() +
+   coord_flip() +
+   labs(x = "", y = "", title = "Variable Importance with Simple Regression")
+
+data.frame(Predicted = preds_cart, Actual = test_data$charges) %>%
+   ggplot(aes(x = Actual, y = Predicted)) +
+   geom_point(alpha = 0.6, color = "cadetblue") +
+   geom_smooth() +
+   geom_abline(intercept = 0, slope = 1, linetype = 2) +
+   labs(title = " RPART, Predicted vs Actual")
+
+ins_scoreboard <- data.frame(Model = "Single Tree", RMSE = rmse_cart)
+
+(ins_scoreboard)
+
+
+#caret
+ins_trControl = trainControl(
+   method = "cv",
+   number = 10,
+   savePredictions = "final"       
+)
+
+set.seed(1234)
+mdl_cart = train(
+   charges ~ ., 
+   data = train_data, 
+   method = "rpart",
+   tuneLength = 5,
+   metric = "RMSE",
+   trControl = ins_trControl
+)
+print(mdl_cart)
+plot(mdl_cart)
+
+library(rpart.plot)
+library(rpart)
+set.seed(1234)
+mdl_cart2 = train(
+   charges ~ ., 
+   data = ins, 
+   method = "rpart",
+   tuneGrid = expand.grid(cp = seq(from = 0, to = 0.1, by = 0.01)),
+   metric = "RMSE",
+   trControl = ins_trControl,
+   )
+print(mdl_cart2)
+plot(mdl_cart2)
+
+#final model
+rpart.plot(mdl_cart2$finalModel)
+
+plot(varImp(mdl_cart2), main="Variable Importance with Single Regression Tree(caret)")
+#prediction
+preds_cart2 <- predict(mdl_cart2, test_data, type = "raw")
+data.frame(Actual = test_data$charges, Predicted = preds_cart2) %>%
+ggplot(aes(x = Actual, y = Predicted)) +
+   geom_point(alpha = 0.6, color = "cadetblue") +
+   geom_smooth(method = "loess", formula = "y ~ x") +
+   geom_abline(intercept = 0, slope = 1, linetype = 2) +
+   labs(title = "Regression tree, Predicted vs Actual (caret)")
+
+
+(rmse_cart2 <- RMSE(pred = preds_cart2, obs = test_data$charges))
+
+ins_scoreboard <- rbind(ins_scoreboard,
+      data.frame(Model = "Single Tree(caret)", RMSE = rmse_cart2)
+) %>% arrange(RMSE)
+(ins_scoreboard)
+```
+
+
+```{r}
+#gradient boosting
+
+set.seed(1234)
+library(gbm)
+set.seed(1234)
+gbm_mdl <- gbm(charges~., data = train_data,interaction.depth = 2,
+               n.trees = 1000, shrinkage = 0.01, distribution = "gaussian")
+summary(gbm_mdl)
+plot(gbm_mdl)
+
+#Plotting the Partial Dependence Plot 
+
+plot.gbm(gbm_mdl)
+plot.gbm(gbm_mdl, i = "smoker")
+plot.gbm(gbm_mdl, i = "bmi")
+
+
+preds_gbm <- bind_cols(
+   Predicted = predict(gbm_mdl, newdata = test_data),
+   Actual = test_data$charges
+)
+
+# Model over-predicts at low end of Sales and under-predicts at high end
+preds_gbm %>%
+   ggplot(aes(x = Actual, y = Predicted)) +
+   geom_point(alpha = 0.6, color = "cadetblue") +
+   geom_smooth(method = "loess", formula = "y ~ x") +
+   geom_abline(intercept = 0, slope = 1, linetype = 2) +
+   labs(title = "GBM, Predicted vs Actual")
+
+
+rmse_gbm <- RMSE(pred = preds_gbm$Predicted, obs = preds_gbm$Actual)
+ins_scoreboard <- rbind(ins_scoreboard,
+   data.frame(Model = "GBM", RMSE = rmse_gbm)
+) %>% arrange(RMSE)
+(ins_scoreboard)
+
+```
+
+```{r}
+
+# random forest
+set.seed(1234)
+mdl_rf <- train(
+   charges ~ ., 
+   data = train_data, 
+   method = "rf",
+   tuneGrid = expand.grid(mtry = 1:10), 
+   trControl = ins_trControl
+)
+mdl_rf
+
+plot(mdl_rf)
+
+
+preds_rf <- bind_cols(
+   Predicted = predict(mdl_rf, newdata = test_data),
+   Actual = test_data$charges
+)
+(rmse_rf <- RMSE(pred = preds_rf$Predicted, obs = preds_rf$Actual))
+preds_rf %>%
+   ggplot(aes(x = Actual, y = Predicted)) +
+   geom_point(alpha = 0.6, color = "cadetblue") +
+   geom_smooth(method = "loess", formula = "y ~ x") +
+   geom_abline(intercept = 0, slope = 1, linetype = 2) +
+   labs(title = " Random Forest, Predicted vs Actual")
+
+plot(varImp(mdl_rf), main="Variable Importance with Random Forest")
+
+ins_scoreboard <- rbind(ins_scoreboard,
+   data.frame(Model = "Random Forest", RMSE = rmse_rf)
+) %>% arrange(RMSE)
+(ins_scoreboard)
+
+```
+
+```{r}
+
+#Bagging
+
+set.seed(1234)
+mdl_bag <- train(
+   charges ~ ., 
+   data = train_data, 
+   method = "treebag",
+   trControl = ins_trControl
+)
+mdl_bag
+
+preds_bag <- bind_cols(
+   Predicted = predict(mdl_bag, newdata = test_data),
+   Actual = test_data$charges
+)
+(rmse_bag <- RMSE(pred = preds_bag$Predicted, obs = preds_bag$Actual))
+
+preds_bag %>%
+   ggplot(aes(x = Actual, y = Predicted)) +
+   geom_point(alpha = 0.6, color = "cadetblue") +
+   geom_smooth(method = "loess", formula = "y ~ x") +
+   geom_abline(intercept = 0, slope = 1, linetype = 2) +
+   labs(title = " Bagging, Predicted vs Actual (caret)")
+plot(varImp(mdl_bag), main="Variable Importance with Bagging")
+
+ins_scoreboard <- rbind(ins_scoreboard,
+   data.frame(Model = "Bagging", RMSE = rmse_bag)
+) %>% arrange(RMSE)
+(ins_scoreboard)
+
+```
+
+```{r}
+
+#LASSO rgression
+
+set.seed(1234)
+lasso <- train(
+  charges ~., data = train_data, method = "glmnet",
+  trControl = trainControl("repeatedcv", number = 10,repeats = 10),
+  tuneGrid = expand.grid(alpha = 1,  # optimize a lasso regression
+    lambda = seq(0, 5, length.out = 101))
+  )
+
+lasso$bestTune
+
+
+# Model coefficients
+coef(lasso$finalModel, lasso$bestTune$lambda)
+ggplot(lasso)
+plot(varImp(lasso), main="Variable Importance with LASSO")
+# Make predictions
+predictions <- lasso %>% predict(test_data)
+# Model prediction performance
+rmse_lasso <- RMSE(predictions, test_data$charges)
+  
+
+ins_scoreboard <- rbind(ins_scoreboard,
+   data.frame(Model = "LASSO", RMSE = rmse_lasso)
+) %>% arrange(RMSE)
+(ins_scoreboard)
+```
+
+
+
+```{r}
+#all RMSE values in a single plot
+
+ins_scoreboard
+ggplot(ins_scoreboard, aes(x=Model, y=RMSE,col=Model))+
+  geom_count()+
+  geom_text(label=round((ins_scoreboard$RMSE),1),hjust=-.197)
+
+```
