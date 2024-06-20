@@ -77,6 +77,12 @@ An ensemble method that builds decision trees by reducing the loss function. Imp
 - [Modern Data Science with R](https://mdsr-book.github.io/mdsr2e/ch-learningI.html#sec:tuning)
 - [Kaggle Dataset](https://www.kaggle.com/datasets/mirichoi0218/insurance)
 
+## **Authors**
+
+- Pratiksha Gadhe
+- Poornima Yedidi
+- Yashi Agarwal
+  
 ## Code Appendix
 
 - [GitHub Repository](https://github.com/pratikshagadhe23/Predictive_Modeling-on_Health_Insurance_Cost)
